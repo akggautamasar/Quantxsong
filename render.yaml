@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: quantx-all-in-one
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --timeout 120 --workers 1 --threads 4
+    plan: free
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
