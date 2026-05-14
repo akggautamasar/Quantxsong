@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuantX Songs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #080a0f;
+      --surface: #0e1118;
+      --card: #13161f;
+      --border: #1e2230;
+      --accent: #e8ff47;
+      --accent2: #ff4778;
+      --text: #e8eaf0;
+      --muted: #6b7080;
+      --radius: 12px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Background grid */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(232,255,71,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(232,255,71,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .glow {
+      position: fixed;
+      width: 600px; height: 600px;
+      border-radius: 50%;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.15;
+    }
+    .glow-1 { background: var(--accent); top: -200px; left: -100px; }
+    .glow-2 { background: var(--accent2); bottom: -200px; right: -100px; }
+
+    /* Header */
+    header {
+      position: relative;
+      z-index: 10;
+      padding: 28px 24px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .logo {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 2rem;
+      letter-spacing: 2px;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .tg-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(232,255,71,0.1);
+      border: 1px solid rgba(232,255,71,0.3);
+      color: var(--accent);
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .tg-btn:hover {
+      background: rgba(232,255,71,0.2);
+      transform: translateY(-1px);
+    }
+    .tg-btn svg { width: 16px; height: 16px; }
+
+    /* Hero */
+    .hero {
+      position: relative;
+      z-index: 10;
+      text-align: center;
+      padding: 60px 24px 40px;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .hero-tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid rgba(232,255,71,0.3);
+      padding: 4px 14px;
+      border-radius: 999px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(3.5rem, 10vw, 7rem);
+      line-height: 0.95;
+      letter-spacing: 2px;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+
+    h1 span { color: var(--accent); }
+
+    .hero p {
+      color: var(--muted);
+      font-size: 1rem;
+      margin-bottom: 36px;
+      line-height: 1.6;
+    }
+
+    /* Search */
+    .search-wrap {
+      position: relative;
+      max-width: 560px;
+      margin: 0 auto;
+    }
+
+    .search-wrap input {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 1rem;
+      padding: 16px 56px 16px 20px;
+      border-radius: var(--radius);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-wrap input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(232,255,71,0.1);
+    }
+
+    .search-wrap input::placeholder { color: var(--muted); }
+
+    .search-btn {
+      position: absolute;
+      right: 8px; top: 50%;
+      transform: translateY(-50%);
+      background: var(--accent);
+      border: none;
+      width: 40px; height: 40px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .search-btn:hover { opacity: 0.85; transform: translateY(-50%) scale(1.05); }
+    .search-btn svg { width: 18px; height: 18px; color: #080a0f; }
+
+    /* Results */
+    .results-section {
+      position: relative;
+      z-index: 10;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 24px 60px;
+    }
+
+    .results-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .results-header span {
+      color: var(--accent);
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.1rem;
+    }
+
+    /* Song cards */
+    .songs-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .song-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      transition: border-color 0.2s, transform 0.2s;
+      animation: slideIn 0.3s ease both;
+    }
+
+    .song-card:hover {
+      border-color: rgba(232,255,71,0.3);
+      transform: translateX(4px);
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .song-card:nth-child(1) { animation-delay: 0.05s; }
+    .song-card:nth-child(2) { animation-delay: 0.1s; }
+    .song-card:nth-child(3) { animation-delay: 0.15s; }
+    .song-card:nth-child(4) { animation-delay: 0.2s; }
+    .song-card:nth-child(5) { animation-delay: 0.25s; }
+
+    .song-thumb {
+      width: 60px; height: 60px;
+      border-radius: 8px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: var(--border);
+    }
+
+    .song-thumb-placeholder {
+      width: 60px; height: 60px;
+      border-radius: 8px;
+      background: var(--border);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 1.4rem;
+    }
+
+    .song-info { flex: 1; min-width: 0; }
+
+    .song-title {
+      font-weight: 500;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .song-artist {
+      color: var(--muted);
+      font-size: 0.82rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 6px;
+    }
+
+    .song-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .tag {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--border);
+      color: var(--muted);
+    }
+
+    .song-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      font-family: 'DM Sans', sans-serif;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+    }
+
+    .btn-stream {
+      background: rgba(232,255,71,0.12);
+      color: var(--accent);
+      border: 1px solid rgba(232,255,71,0.25);
+    }
+    .btn-stream:hover { background: rgba(232,255,71,0.22); }
+
+    .btn-download {
+      background: rgba(255,71,120,0.12);
+      color: var(--accent2);
+      border: 1px solid rgba(255,71,120,0.25);
+    }
+    .btn-download:hover { background: rgba(255,71,120,0.22); }
+
+    .btn-lyrics {
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-lyrics:hover { background: rgba(255,255,255,0.1); }
+
+    .action-btn svg { width: 13px; height: 13px; }
+
+    /* Audio player */
+    .player-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: rgba(13,16,24,0.95);
+      backdrop-filter: blur(20px);
+      border-top: 1px solid var(--border);
+      padding: 12px 24px;
+      z-index: 100;
+      display: none;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .player-bar.active { display: flex; }
+
+    .player-thumb {
+      width: 44px; height: 44px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .player-info { flex: 1; min-width: 0; }
+    .player-title {
+      font-size: 0.85rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .player-artist { font-size: 0.75rem; color: var(--muted); }
+
+    audio { flex: 1; max-width: 400px; height: 36px; accent-color: var(--accent); }
+
+    .player-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      transition: color 0.15s;
+    }
+    .player-close:hover { color: var(--text); }
+
+    /* Lyrics modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      max-width: 600px;
+      width: 100%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      animation: modalIn 0.2s ease;
+    }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .modal-header {
+      padding: 20px 20px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .modal-title { font-weight: 500; font-size: 1rem; }
+    .modal-artist { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+
+    .modal-close {
+      background: none; border: none;
+      color: var(--muted); cursor: pointer;
+      font-size: 1.2rem; padding: 2px 6px;
+      border-radius: 4px; transition: color 0.15s;
+    }
+    .modal-close:hover { color: var(--text); }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+      font-size: 0.9rem;
+      line-height: 1.8;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+
+    /* States */
+    .state-box {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--muted);
+    }
+
+    .state-box .icon { font-size: 3rem; margin-bottom: 16px; }
+    .state-box p { font-size: 0.9rem; line-height: 1.6; }
+
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Footer */
+    footer {
+      position: relative; z-index: 10;
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      border-top: 1px solid var(--border);
+      margin-top: 20px;
+    }
+
+    footer a { color: var(--accent); text-decoration: none; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .song-card { flex-wrap: wrap; }
+      .song-actions { width: 100%; justify-content: flex-start; }
+      audio { max-width: 100%; }
+      .player-bar { flex-wrap: wrap; gap: 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="glow glow-1"></div>
+<div class="glow glow-2"></div>
+
+<header>
+  <a class="logo" href="/">QUANTX</a>
+  <a class="tg-btn" href="https://t.me/Airarchivebot" target="_blank">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.016 9.504c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.19 14.267l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.626.32z"/></svg>
+    Telegram Bot
+  </a>
+</header>
+
+<section class="hero">
+  <div class="hero-tag">Free Music Search</div>
+  <h1>FIND YOUR<br/><span>SONG.</span></h1>
+  <p>Search millions of songs. Stream, download, and get lyrics — all for free.</p>
+
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="Song name or artist..." autocomplete="off" />
+    <button class="search-btn" id="searchBtn" aria-label="Search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+    </button>
+  </div>
+</section>
+
+<section class="results-section">
+  <div id="resultsContainer"></div>
+</section>
+
+<!-- Audio player -->
+<div class="player-bar" id="playerBar">
+  <img class="player-thumb" id="playerThumb" src="" alt="" />
+  <div class="player-info">
+    <div class="player-title" id="playerTitle">—</div>
+    <div class="player-artist" id="playerArtist">—</div>
+  </div>
+  <audio id="audioEl" controls></audio>
+  <button class="player-close" id="playerClose" aria-label="Close player">✕</button>
+</div>
+
+<!-- Lyrics modal -->
+<div class="modal-overlay" id="lyricsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="lyricsTitle">Lyrics</div>
+        <div class="modal-artist" id="lyricsArtist"></div>
+      </div>
+      <button class="modal-close" id="lyricsClose">✕</button>
+    </div>
+    <div class="modal-body" id="lyricsBody">Loading...</div>
+  </div>
+</div>
+
+<footer>
+  Made with ❤️ by <strong>QuantX</strong> &nbsp;·&nbsp;
+  <a href="https://t.me/Airarchivebot" target="_blank">Telegram Bot</a>
+</footer>
+
+<script>
+  const API = 'https://airsongsapi.vercel.app';
+  const input = document.getElementById('searchInput');
+  const searchBtn = document.getElementById('searchBtn');
+  const container = document.getElementById('resultsContainer');
+  const playerBar = document.getElementById('playerBar');
+  const audioEl = document.getElementById('audioEl');
+  const playerThumb = document.getElementById('playerThumb');
+  const playerTitle = document.getElementById('playerTitle');
+  const playerArtist = document.getElementById('playerArtist');
+  const playerClose = document.getElementById('playerClose');
+  const lyricsModal = document.getElementById('lyricsModal');
+  const lyricsClose = document.getElementById('lyricsClose');
+  const lyricsBody = document.getElementById('lyricsBody');
+  const lyricsTitle = document.getElementById('lyricsTitle');
+  const lyricsArtist = document.getElementById('lyricsArtist');
+
+  function fmt(sec) {
+    return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`;
+  }
+
+  function esc(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function setState(html) {
+    container.innerHTML = html;
+  }
+
+  async function search(query) {
+    if (!query.trim()) return;
+    setState(`<div class="state-box"><div class="spinner"></div><p>Searching for "${esc(query)}"...</p></div>`);
+
+    try {
+      const res = await fetch(`${API}/result/?query=${encodeURIComponent(query)}`);
+      const data = await res.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        setState(`<div class="state-box"><div class="icon">🎵</div><p>No songs found for "<strong>${esc(query)}</strong>".<br/>Try a different name or artist.</p></div>`);
+        return;
+      }
+
+      const songs = data.slice(0, 8);
+      container.innerHTML = `
+        <div class="results-header">Results &nbsp;<span>${songs.length}</span></div>
+        <div class="songs-grid" id="songsGrid"></div>
+      `;
+
+      const grid = document.getElementById('songsGrid');
+      songs.forEach(song => {
+        const card = document.createElement('div');
+        card.className = 'song-card';
+        card.innerHTML = `
+          ${song.image
+            ? `<img class="song-thumb" src="${esc(song.image)}" alt="${esc(song.song)}" loading="lazy" />`
+            : `<div class="song-thumb-placeholder">🎵</div>`
+          }
+          <div class="song-info">
+            <div class="song-title">${esc(song.song)}</div>
+            <div class="song-artist">${esc(song.primary_artists)}</div>
+            <div class="song-meta">
+              <span class="tag">${esc(song.year)}</span>
+              <span class="tag">${fmt(song.duration)}</span>
+              ${song.language ? `<span class="tag">${esc(song.language)}</span>` : ''}
+            </div>
+          </div>
+          <div class="song-actions">
+            <button class="action-btn btn-stream" data-id="${esc(song.id)}" data-url="${esc(song.media_url||'')}" data-title="${esc(song.song)}" data-artist="${esc(song.primary_artists)}" data-img="${esc(song.image||'')}">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              Stream
+            </button>
+            ${song.media_url
+              ? `<a class="action-btn btn-download" href="${esc(song.media_url)}" download target="_blank">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Download
+                </a>`
+              : ''
+            }
+            <button class="action-btn btn-lyrics" data-id="${esc(song.id)}" data-title="${esc(song.song)}" data-artist="${esc(song.primary_artists)}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              Lyrics
+            </button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+    } catch (err) {
+      setState(`<div class="state-box"><div class="icon">⚠️</div><p>Something went wrong. Please try again.</p></div>`);
+    }
+  }
+
+  // Stream
+  document.addEventListener('click', async e => {
+    const streamBtn = e.target.closest('.btn-stream');
+    if (streamBtn) {
+      const url = streamBtn.dataset.url;
+      const title = streamBtn.dataset.title;
+      const artist = streamBtn.dataset.artist;
+      const img = streamBtn.dataset.img;
+
+      if (!url) {
+        alert('Stream not available for this song.');
+        return;
+      }
+
+      playerTitle.textContent = title;
+      playerArtist.textContent = artist;
+      playerThumb.src = img || '';
+      playerThumb.style.display = img ? 'block' : 'none';
+      audioEl.src = url;
+      playerBar.classList.add('active');
+      audioEl.play();
+      return;
+    }
+
+    // Lyrics
+    const lyricsBtn = e.target.closest('.btn-lyrics');
+    if (lyricsBtn) {
+      const id = lyricsBtn.dataset.id;
+      const title = lyricsBtn.dataset.title;
+      const artist = lyricsBtn.dataset.artist;
+
+      lyricsTitle.textContent = title;
+      lyricsArtist.textContent = artist;
+      lyricsBody.textContent = 'Loading lyrics...';
+      lyricsModal.classList.add('active');
+
+      try {
+        const res = await fetch(`${API}/lyrics/?query=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (data.success && data.data && data.data.lyrics) {
+          lyricsBody.textContent = data.data.lyrics;
+        } else {
+          lyricsBody.textContent = 'Lyrics not available for this song.';
+        }
+      } catch {
+        lyricsBody.textContent = 'Error loading lyrics. Please try again.';
+      }
+    }
+  });
+
+  // Close player
+  playerClose.addEventListener('click', () => {
+    audioEl.pause();
+    audioEl.src = '';
+    playerBar.classList.remove('active');
+  });
+
+  // Close lyrics
+  lyricsClose.addEventListener('click', () => lyricsModal.classList.remove('active'));
+  lyricsModal.addEventListener('click', e => { if (e.target === lyricsModal) lyricsModal.classList.remove('active'); });
+
+  // Search triggers
+  searchBtn.addEventListener('click', () => search(input.value));
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') search(input.value); });
+
+  // Initial state
+  setState(`<div class="state-box"><div class="icon">🎵</div><p>Type a song name above and hit search.</p></div>`);
+</script>
+</body>
+</html>
