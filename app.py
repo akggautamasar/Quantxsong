@@ -457,11 +457,13 @@ def health():
     return jsonify({'status': 'ok', 'service': 'QuantX All-in-One'})
 
 
-# ─── Start ───────────────────────────────────────────────────────
+# ─── Start polling at module level (works with gunicorn) ─────────
+if TELEGRAM_TOKEN:
+    t = threading.Thread(target=poll_bot, daemon=True)
+    t.start()
+    log.info('Bot polling thread started')
+else:
+    log.warning('TELEGRAM_BOT_TOKEN not set — bot polling disabled')
+
 if __name__ == '__main__':
-    if TELEGRAM_TOKEN:
-        t = threading.Thread(target=poll_bot, daemon=True)
-        t.start()
-    else:
-        log.warning('TELEGRAM_BOT_TOKEN not set — bot polling disabled')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
