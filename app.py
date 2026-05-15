@@ -4,7 +4,6 @@ import threading
 import tempfile
 import logging
 import requests
-import yt_dlp
 from flask import Flask, jsonify, request, Response, send_from_directory
 
 logging.basicConfig(level=logging.INFO)
@@ -104,7 +103,66 @@ def chat_action(chat_id, action):
 def inline_kb(*rows):
     return {'inline_keyboard': list(rows)}
 
-def fmt_dur(sec):
+def yt_search_innertube(query, limit=5):
+    """Search YouTube using InnerTube API — not blocked like yt-dlp scraping."""
+    url = 'https://www.youtube.com/youtubei/v1/search?prettyPrint=false'
+    payload = {
+        'context': {
+            'client': {
+                'clientName': 'WEB',
+                'clientVersion': '2.20240101.00.00',
+            }
+        },
+        'query': query,
+    }
+    headers = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+        'X-YouTube-Client-Name': '1',
+        'X-YouTube-Client-Version': '2.20240101.00.00',
+    }
+    r = requests.post(url, json=payload, headers=headers, timeout=15)
+    data = r.json()
+
+    videos = []
+    try:
+        contents = data['contents']['twoColumnSearchResultsRenderer']['primaryContents']['sectionListRenderer']['contents']
+        for section in contents:
+            items = section.get('itemSectionRenderer', {}).get('contents', [])
+            for item in items:
+                v = item.get('videoRenderer')
+                if not v:
+                    continue
+                vid_id = v.get('videoId')
+                title = v.get('title', {}).get('runs', [{}])[0].get('text', '')
+                channel = v.get('ownerText', {}).get('runs', [{}])[0].get('text', 'Unknown')
+                duration_text = v.get('lengthText', {}).get('simpleText', '?')
+
+                # Convert duration string to seconds
+                dur_sec = 0
+                try:
+                    parts = duration_text.split(':')
+                    if len(parts) == 2:
+                        dur_sec = int(parts[0]) * 60 + int(parts[1])
+                    elif len(parts) == 3:
+                        dur_sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                except:
+                    pass
+
+                videos.append({
+                    'id': vid_id,
+                    'title': title,
+                    'channel': channel,
+                    'duration': dur_sec,
+                    'duration_str': duration_text,
+                    'thumbnail': f'https://img.youtube.com/vi/{vid_id}/mqdefault.jpg'
+                })
+                if len(videos) >= limit:
+                    return videos
+    except Exception as e:
+        log.error(f'InnerTube parse error: {e}')
+
+    return videos
     if not sec:
         return '?'
     sec = int(sec)
@@ -208,26 +266,13 @@ def handle_yt_search(chat_id, query):
         chat_action(chat_id, 'typing')
         send(chat_id, f'🎬 Searching YouTube for "{query}"...')
 
-        opts = get_ydl_opts({'extract_flat': True, 'playlist_items': '1:5'})
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            result = ydl.extract_info(f'ytsearch5:{query}', download=False)
+        videos = yt_search_innertube(query, limit=5)
 
-        entries = result.get('entries', [])
-        if not entries:
+        if not videos:
             send(chat_id, '❌ No YouTube results found.')
             return
 
-        for v in entries:
-            if not v:
-                continue
-            video = {
-                'id': v.get('id'),
-                'title': v.get('title'),
-                'channel': v.get('uploader') or v.get('channel', 'Unknown'),
-                'duration': v.get('duration', 0),
-                'duration_str': fmt_dur(v.get('duration')),
-                'thumbnail': f"https://img.youtube.com/vi/{v.get('id')}/mqdefault.jpg"
-            }
+        for video in videos:
             key = cache_yt(video)
             info = (
                 f"🎬 *{video['title']}*\n"
@@ -338,44 +383,47 @@ def handle_yt_download(chat_id, cb_id, key):
 
     try:
         vid_url = f"https://www.youtube.com/watch?v={video['id']}"
-        tmp_dir = tempfile.mkdtemp()
 
-        opts = get_ydl_opts({
-            'format': 'bestaudio/best',
-            'outtmpl': os.path.join(tmp_dir, '%(id)s.%(ext)s'),
-        })
+        # Use cobalt.tools API — handles YouTube blocking
+        cobalt_resp = requests.post(
+            'https://api.cobalt.tools/',
+            json={
+                'url': vid_url,
+                'downloadMode': 'audio',
+                'audioFormat': 'mp3',
+                'audioBitrate': '128',
+            },
+            headers={
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+            },
+            timeout=30
+        )
 
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(vid_url, download=True)
+        cobalt_data = cobalt_resp.json()
+        log.info(f'Cobalt response: {cobalt_data}')
 
-        ext = info.get('ext', 'webm')
+        # cobalt returns {status, url} or {status, tunnel}
+        audio_url = cobalt_data.get('url') or cobalt_data.get('tunnel')
 
-        # Find the downloaded file (extension may vary)
-        fpath = None
-        for f in os.listdir(tmp_dir):
-            if f.startswith(info['id']):
-                fpath = os.path.join(tmp_dir, f)
-                ext = f.rsplit('.', 1)[-1]
-                break
-
-        if not fpath or not os.path.exists(fpath):
-            send(chat_id, '❌ File not found after download. Try a different video.')
+        if not audio_url or cobalt_data.get('status') == 'error':
+            error_msg = cobalt_data.get('error', {}).get('code', 'Unknown error')
+            log.error(f'Cobalt error: {cobalt_data}')
+            send(chat_id, f'❌ Could not get audio. Try a different video.')
             return
 
-        size_mb = os.path.getsize(fpath) / 1024 / 1024
-        log.info(f'Downloaded {fpath} — {size_mb:.1f}MB')
+        # Download the audio
+        audio_resp = requests.get(audio_url, timeout=60, stream=True)
+        content = audio_resp.content
 
-        if size_mb > 45:
-            os.remove(fpath)
-            send(chat_id, f'❌ File too large ({size_mb:.1f}MB). Telegram limit is 50MB.\n\nTry a shorter video.')
+        size_mb = len(content) / 1024 / 1024
+        log.info(f'Audio size: {size_mb:.1f}MB')
+
+        if len(content) > 45 * 1024 * 1024:
+            send(chat_id, f'❌ File too large ({size_mb:.1f}MB). Telegram limit is 50MB.')
             return
 
-        fname = f"{safe_name(video['title'])}.{ext}"
-        mime = 'audio/mp4' if ext in ('m4a', 'mp4') else 'audio/webm' if ext == 'webm' else 'audio/mpeg'
-
-        with open(fpath, 'rb') as f:
-            audio_bytes = f.read()
-        os.remove(fpath)
+        fname = f"{safe_name(video['title'])}.mp3"
 
         url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendAudio'
         r = requests.post(url, data={
@@ -384,7 +432,7 @@ def handle_yt_download(chat_id, cb_id, key):
             'performer': video['channel'],
             'duration': int(video.get('duration') or 0),
         }, files={
-            'audio': (fname, audio_bytes, mime)
+            'audio': (fname, content, 'audio/mpeg')
         }, timeout=120)
 
         result = r.json()
@@ -394,9 +442,7 @@ def handle_yt_download(chat_id, cb_id, key):
 
     except Exception as e:
         log.error(f'YT download error: {e}', exc_info=True)
-        send(chat_id,
-            f'❌ Download failed: {str(e)[:200]}\n\nTry a different video.'
-        )
+        send(chat_id, f'❌ Download failed. Please try a different video.')
 
 
 # ─── Bot polling thread ──────────────────────────────────────────
@@ -438,21 +484,7 @@ def yt_search():
     if not query:
         return jsonify({'error': 'Missing ?q='}), 400
     try:
-        opts = get_ydl_opts({'extract_flat': True, 'playlist_items': '1:5'})
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            result = ydl.extract_info(f'ytsearch5:{query}', download=False)
-        videos = []
-        for e in result.get('entries', []):
-            if not e: continue
-            videos.append({
-                'id': e.get('id'),
-                'title': e.get('title'),
-                'channel': e.get('uploader') or e.get('channel', 'Unknown'),
-                'duration': e.get('duration'),
-                'duration_str': fmt_dur(e.get('duration')),
-                'thumbnail': f"https://img.youtube.com/vi/{e.get('id')}/mqdefault.jpg",
-                'url': f"https://www.youtube.com/watch?v={e.get('id')}"
-            })
+        videos = yt_search_innertube(query, limit=5)
         return jsonify({'results': videos})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -463,31 +495,26 @@ def yt_download():
     if not video_id:
         return jsonify({'error': 'Missing ?id='}), 400
     try:
-        tmp_dir = tempfile.mkdtemp()
-        opts = get_ydl_opts({
-            'format': 'bestaudio/best',
-            'outtmpl': os.path.join(tmp_dir, '%(id)s.%(ext)s'),
-        })
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=True)
+        cobalt_resp = requests.post(
+            'https://api.cobalt.tools/',
+            json={
+                'url': f'https://www.youtube.com/watch?v={video_id}',
+                'downloadMode': 'audio',
+                'audioFormat': 'mp3',
+                'audioBitrate': '128',
+            },
+            headers={'Accept': 'application/json', 'Content-Type': 'application/json'},
+            timeout=30
+        )
+        cobalt_data = cobalt_resp.json()
+        audio_url = cobalt_data.get('url') or cobalt_data.get('tunnel')
+        if not audio_url:
+            return jsonify({'error': 'Could not get audio URL'}), 500
 
-        ext = info.get('ext', 'm4a')
-        fpath = os.path.join(tmp_dir, f"{info['id']}.{ext}")
-        title = info.get('title', 'audio')
-        fname = f"{safe_name(title)}.{ext}"
+        audio_resp = requests.get(audio_url, timeout=60)
 
-        def generate():
-            with open(fpath, 'rb') as f:
-                while chunk := f.read(8192):
-                    yield chunk
-            os.remove(fpath)
-
-        return Response(generate(), mimetype='audio/mp4', headers={
-            'Content-Disposition': f'attachment; filename="{fname}"',
-            'X-Title': title,
-            'X-Channel': info.get('uploader') or 'Unknown',
-            'X-Duration': str(int(info.get('duration') or 0)),
-            'X-Filename': fname,
+        return Response(audio_resp.content, mimetype='audio/mpeg', headers={
+            'Content-Disposition': f'attachment; filename="{video_id}.mp3"',
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
