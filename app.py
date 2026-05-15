@@ -1,7 +1,7 @@
 import os
 import re
+import time
 import threading
-import tempfile
 import logging
 import requests
 from flask import Flask, jsonify, request, Response, send_from_directory
@@ -13,39 +13,8 @@ app = Flask(__name__, static_folder='static')
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 AIRSONGS_API = 'https://airsongsapi.vercel.app'
-YT_COOKIES = os.environ.get('YT_COOKIES', '')  # Netscape cookies.txt content
 
-# Write cookies to a temp file if provided
-COOKIES_FILE = None
-if YT_COOKIES:
-    _cf = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
-    _cf.write(YT_COOKIES)
-    _cf.close()
-    COOKIES_FILE = _cf.name
-    log.info(f'YouTube cookies loaded from env → {COOKIES_FILE}')
-
-def get_ydl_opts(extra=None):
-    opts = {
-        'quiet': False,
-        'no_warnings': False,
-        'nocheckcertificate': True,
-        # ios client provides pre-signed URLs — no signature solving needed
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios'],
-            }
-        },
-        'http_headers': {
-            'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
-        },
-    }
-    if COOKIES_FILE:
-        opts['cookiefile'] = COOKIES_FILE
-    if extra:
-        opts.update(extra)
-    return opts
-
-# ─── In-memory caches ────────────────────────────────────────────
+# ─── In-memory caches ─────────────────────────────────────────────
 song_cache = {}
 yt_cache = {}
 cache_counter = [0]
@@ -64,7 +33,19 @@ def cache_yt(video):
     yt_cache[key] = video
     return key
 
-# ─── Telegram helpers ────────────────────────────────────────────
+# ─── Utility ──────────────────────────────────────────────────────
+def fmt_dur(sec):
+    if not sec:
+        return '?'
+    sec = int(sec)
+    m, s = divmod(sec, 60)
+    h, m2 = divmod(m, 60)
+    return f'{h}:{m2:02}:{s:02}' if h else f'{m}:{s:02}'
+
+def safe_name(text):
+    return re.sub(r'[^a-zA-Z0-9 _\-]', '', text or '').strip() or 'audio'
+
+# ─── Telegram helpers ─────────────────────────────────────────────
 def tg(method, **kwargs):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}'
     r = requests.post(url, json=kwargs, timeout=30)
@@ -82,18 +63,6 @@ def send_photo(chat_id, photo, caption, keyboard=None):
         kwargs['reply_markup'] = keyboard
     return tg('sendPhoto', **kwargs)
 
-def send_audio(chat_id, audio_bytes, filename, title, performer, duration):
-    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendAudio'
-    r = requests.post(url, data={
-        'chat_id': chat_id,
-        'title': title,
-        'performer': performer,
-        'duration': duration,
-    }, files={
-        'audio': (filename, audio_bytes, 'audio/mp4')
-    }, timeout=120)
-    return r.json()
-
 def answer_cb(callback_id, text=''):
     return tg('answerCallbackQuery', callback_query_id=callback_id, text=text)
 
@@ -103,16 +72,11 @@ def chat_action(chat_id, action):
 def inline_kb(*rows):
     return {'inline_keyboard': list(rows)}
 
+# ─── YouTube InnerTube search ─────────────────────────────────────
 def yt_search_innertube(query, limit=5):
-    """Search YouTube using InnerTube API — not blocked like yt-dlp scraping."""
     url = 'https://www.youtube.com/youtubei/v1/search?prettyPrint=false'
     payload = {
-        'context': {
-            'client': {
-                'clientName': 'WEB',
-                'clientVersion': '2.20240101.00.00',
-            }
-        },
+        'context': {'client': {'clientName': 'WEB', 'clientVersion': '2.20240101.00.00'}},
         'query': query,
     }
     headers = {
@@ -123,10 +87,10 @@ def yt_search_innertube(query, limit=5):
     }
     r = requests.post(url, json=payload, headers=headers, timeout=15)
     data = r.json()
-
     videos = []
     try:
-        contents = data['contents']['twoColumnSearchResultsRenderer']['primaryContents']['sectionListRenderer']['contents']
+        contents = (data['contents']['twoColumnSearchResultsRenderer']
+                    ['primaryContents']['sectionListRenderer']['contents'])
         for section in contents:
             items = section.get('itemSectionRenderer', {}).get('contents', [])
             for item in items:
@@ -137,8 +101,6 @@ def yt_search_innertube(query, limit=5):
                 title = v.get('title', {}).get('runs', [{}])[0].get('text', '')
                 channel = v.get('ownerText', {}).get('runs', [{}])[0].get('text', 'Unknown')
                 duration_text = v.get('lengthText', {}).get('simpleText', '?')
-
-                # Convert duration string to seconds
                 dur_sec = 0
                 try:
                     parts = duration_text.split(':')
@@ -148,32 +110,64 @@ def yt_search_innertube(query, limit=5):
                         dur_sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
                 except:
                     pass
-
                 videos.append({
-                    'id': vid_id,
-                    'title': title,
-                    'channel': channel,
-                    'duration': dur_sec,
-                    'duration_str': duration_text,
+                    'id': vid_id, 'title': title, 'channel': channel,
+                    'duration': dur_sec, 'duration_str': duration_text,
                     'thumbnail': f'https://img.youtube.com/vi/{vid_id}/mqdefault.jpg'
                 })
                 if len(videos) >= limit:
                     return videos
     except Exception as e:
         log.error(f'InnerTube parse error: {e}')
-
     return videos
-    if not sec:
-        return '?'
-    sec = int(sec)
-    m, s = divmod(sec, 60)
-    h, m2 = divmod(m, 60)
-    return f'{h}:{m2:02}:{s:02}' if h else f'{m}:{s:02}'
 
-def safe_name(text):
-    return re.sub(r'[^a-zA-Z0-9 _\-]', '', text or '').strip() or 'audio'
+# ─── YouTube audio download via loader.to ────────────────────────
+def download_yt_audio(video_id, title):
+    try:
+        # Step 1: request conversion
+        r = requests.post(
+            'https://loader.to/api/button/',
+            data={
+                'url': f'https://www.youtube.com/watch?v={video_id}',
+                'f': 'mp3',
+                'lang': 'en'
+            },
+            headers={'User-Agent': 'Mozilla/5.0'},
+            timeout=15
+        )
+        data = r.json()
+        log.info(f'loader.to button: {data}')
+        token = data.get('id')
+        if not token:
+            log.error('No token from loader.to')
+            return None, None
 
-# ─── Bot message handler ─────────────────────────────────────────
+        # Step 2: poll for completion
+        for attempt in range(15):
+            time.sleep(4)
+            r2 = requests.get(
+                f'https://loader.to/api/progress/?id={token}',
+                headers={'User-Agent': 'Mozilla/5.0'},
+                timeout=15
+            )
+            progress = r2.json()
+            log.info(f'loader.to progress attempt {attempt+1}: {progress}')
+            if progress.get('success') == 1:
+                audio_url = progress.get('download_url')
+                if audio_url:
+                    r3 = requests.get(audio_url, timeout=60,
+                                      headers={'User-Agent': 'Mozilla/5.0'})
+                    fname = f"{safe_name(title)}.mp3"
+                    return r3.content, fname
+
+        log.error('loader.to timed out')
+        return None, None
+
+    except Exception as e:
+        log.error(f'download_yt_audio error: {e}')
+        return None, None
+
+# ─── Bot message handler ──────────────────────────────────────────
 def handle_message(msg):
     chat_id = msg['chat']['id']
     text = msg.get('text', '')
@@ -182,15 +176,10 @@ def handle_message(msg):
 
     if text == '/start':
         send_md(chat_id,
-            '🎵 *Welcome to QuantX Songs Bot!* 🎵\n\n'
-            'Search for any song:\n'
-            '• 🎧 Stream & download music\n'
-            '• 📝 Get lyrics\n'
-            '• 🎬 YouTube search with /yt\n\n'
-            '*Examples:*\n'
-            '• Arjan Vailly\n'
-            '• Shape of You\n'
-            '• /yt Blinding Lights\n\n'
+            '🎵 *Welcome to QuantX Songs Bot!*\n\n'
+            '• Type any song name to search\n'
+            '• /yt SongName to search YouTube\n'
+            '• /help for more info\n\n'
             'Built with ❤️ by QuantX'
         )
         return
@@ -198,17 +187,17 @@ def handle_message(msg):
     if text == '/help':
         send_md(chat_id,
             '🤖 *Commands:*\n\n'
-            '/start - Welcome message\n'
+            '/start - Welcome\n'
             '/help - This message\n'
-            '/yt SongName - Search YouTube\n\n'
-            '🔍 Just type any song name to search!'
+            '/yt SongName - YouTube search\n\n'
+            'Just type any song name to search AirSongs!'
         )
         return
 
     if text.lower().startswith('/yt'):
         query = re.sub(r'^/yt\s*', '', text, flags=re.IGNORECASE).strip()
         if not query:
-            send(chat_id, '❌ Please provide a song name.\nExample: /yt Shape of You')
+            send(chat_id, '❌ Usage: /yt Shape of You')
             return
         handle_yt_search(chat_id, query)
         return
@@ -216,7 +205,6 @@ def handle_message(msg):
     if text.startswith('/'):
         return
 
-    # AirSongs search
     handle_airsongs_search(chat_id, text)
 
 
@@ -225,14 +213,11 @@ def handle_airsongs_search(chat_id, query):
         chat_action(chat_id, 'typing')
         r = requests.get(f'{AIRSONGS_API}/result/', params={'query': query}, timeout=15)
         data = r.json()
-
         if not isinstance(data, list) or len(data) == 0:
             send(chat_id, '❌ No songs found. Try a different search term.')
             return
-
         songs = data[:5]
         send(chat_id, f'🔍 Found {len(songs)} results for "{query}":')
-
         for song in songs:
             key = cache_song(song)
             dur = fmt_dur(song.get('duration', 0))
@@ -255,33 +240,28 @@ def handle_airsongs_search(chat_id, query):
                 send_photo(chat_id, img, info, kb)
             else:
                 send_md(chat_id, info, reply_markup=kb)
-
     except Exception as e:
         log.error(f'AirSongs search error: {e}')
-        send(chat_id, '❌ Sorry, there was an error. Please try again.')
+        send(chat_id, '❌ Error searching. Please try again.')
 
 
 def handle_yt_search(chat_id, query):
     try:
         chat_action(chat_id, 'typing')
         send(chat_id, f'🎬 Searching YouTube for "{query}"...')
-
         videos = yt_search_innertube(query, limit=5)
-
         if not videos:
             send(chat_id, '❌ No YouTube results found.')
             return
-
         for video in videos:
             key = cache_yt(video)
             info = (
                 f"🎬 *{video['title']}*\n"
-                f"👤 Channel: {video['channel']}\n"
-                f"⏱️ Duration: {video['duration_str']}"
+                f"👤 {video['channel']}\n"
+                f"⏱️ {video['duration_str']}"
             )
             kb = inline_kb([{'text': '🎧 Download Audio', 'callback_data': f'ytdl_{key}'}])
             send_photo(chat_id, video['thumbnail'], info, kb)
-
     except Exception as e:
         log.error(f'YT search error: {e}')
         send(chat_id, '❌ YouTube search failed. Please try again.')
@@ -315,47 +295,46 @@ def handle_callback(cb):
             return
         try:
             r = requests.get(media_url, timeout=60)
-            fname = f"{safe_name(song.get('song'))} - {song.get('primary_artists', '')}.m4a"
-            result = send_audio(
-                chat_id, r.content, fname,
-                song.get('song', ''), song.get('primary_artists', ''),
-                int(song.get('duration') or 0)
-            )
-            if not result.get('ok'):
-                send(chat_id, '❌ Failed to send audio. Try download link instead.')
+            fname = f"{safe_name(song.get('song', 'song'))} - {song.get('primary_artists', '')}.m4a"
+            url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendAudio'
+            res = requests.post(url, data={
+                'chat_id': chat_id,
+                'title': song.get('song', ''),
+                'performer': song.get('primary_artists', ''),
+                'duration': int(song.get('duration') or 0),
+            }, files={'audio': (fname, r.content, 'audio/mp4')}, timeout=120)
+            if not res.json().get('ok'):
+                send(chat_id, '❌ Failed to send. Try download link.')
         except Exception as e:
             log.error(f'Stream error: {e}')
-            send(chat_id, '❌ Stream failed. Please try again.')
+            send(chat_id, '❌ Stream failed.')
 
     elif action == 'download':
         answer_cb(cb_id, '📥 Link sent!')
         media_url = song.get('media_url')
         if media_url:
-            send_md(chat_id, f"📥 *Download Link:*\n{media_url}\n\nClick to download MP3.")
+            send_md(chat_id, f"📥 *Download Link:*\n{media_url}")
         else:
-            send(chat_id, '❌ Download not available for this song.')
+            send(chat_id, '❌ Download not available.')
 
     elif action == 'lyrics':
-        answer_cb(cb_id, '📝 Loading lyrics...')
+        answer_cb(cb_id, '📝 Loading...')
         chat_action(chat_id, 'typing')
         try:
             r = requests.get(f'{AIRSONGS_API}/lyrics/', params={'query': song.get('id')}, timeout=15)
-            data2 = r.json()
-            if data2.get('success') and data2.get('data', {}).get('lyrics'):
-                lyrics = data2['data']['lyrics']
-                if len(lyrics) > 3800:
-                    lyrics = lyrics[:3800] + '\n...'
+            d = r.json()
+            if d.get('success') and d.get('data', {}).get('lyrics'):
+                lyrics = d['data']['lyrics'][:3800]
                 send_md(chat_id, f"📝 *Lyrics for {song.get('song')}*\n\n{lyrics}")
             else:
-                send(chat_id, '❌ Lyrics not available for this song.')
+                send(chat_id, '❌ Lyrics not available.')
         except Exception as e:
             log.error(f'Lyrics error: {e}')
             send(chat_id, '❌ Error fetching lyrics.')
 
     elif action == 'info':
-        answer_cb(cb_id, 'ℹ️ Info displayed!')
+        answer_cb(cb_id, 'ℹ️ Info!')
         dur = fmt_dur(song.get('duration', 0))
-        pc = song.get('play_count')
         send_md(chat_id,
             f"ℹ️ *Song Information*\n\n"
             f"🎵 *Title:* {song.get('song')}\n"
@@ -364,7 +343,6 @@ def handle_callback(cb):
             f"⏱️ *Duration:* {dur}\n"
             f"🗓️ *Year:* {song.get('year')}\n"
             f"🌐 *Language:* {song.get('language')}\n"
-            f"▶️ *Play Count:* {int(pc):,}" if pc else f"▶️ *Play Count:* N/A\n"
             f"🏷️ *Label:* {song.get('label') or 'N/A'}"
         )
     else:
@@ -379,73 +357,33 @@ def handle_yt_download(chat_id, cb_id, key):
 
     answer_cb(cb_id, '⏳ Preparing audio...')
     chat_action(chat_id, 'upload_audio')
-    send_md(chat_id, f"⏳ Downloading *{video['title']}*...\nThis may take a moment.")
+    send_md(chat_id, f"⏳ Downloading *{video['title']}*...\nMay take 30-60 seconds.")
 
-    try:
-        vid_url = f"https://www.youtube.com/watch?v={video['id']}"
+    audio_bytes, fname = download_yt_audio(video['id'], video['title'])
 
-        # Use cobalt.tools API — handles YouTube blocking
-        cobalt_resp = requests.post(
-            'https://api.cobalt.tools/',
-            json={
-                'url': vid_url,
-                'downloadMode': 'audio',
-                'audioFormat': 'mp3',
-                'audioBitrate': '128',
-            },
-            headers={
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-            },
-            timeout=30
-        )
+    if not audio_bytes:
+        send(chat_id, '❌ Download failed. Try a different video.')
+        return
 
-        cobalt_data = cobalt_resp.json()
-        log.info(f'Cobalt response: {cobalt_data}')
+    size_mb = len(audio_bytes) / 1024 / 1024
+    if size_mb > 45:
+        send(chat_id, f'❌ File too large ({size_mb:.1f}MB). Try a shorter video.')
+        return
 
-        # cobalt returns {status, url} or {status, tunnel}
-        audio_url = cobalt_data.get('url') or cobalt_data.get('tunnel')
+    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendAudio'
+    r = requests.post(url, data={
+        'chat_id': chat_id,
+        'title': video['title'],
+        'performer': video['channel'],
+        'duration': int(video.get('duration') or 0),
+    }, files={'audio': (fname, audio_bytes, 'audio/mpeg')}, timeout=120)
 
-        if not audio_url or cobalt_data.get('status') == 'error':
-            error_msg = cobalt_data.get('error', {}).get('code', 'Unknown error')
-            log.error(f'Cobalt error: {cobalt_data}')
-            send(chat_id, f'❌ Could not get audio. Try a different video.')
-            return
-
-        # Download the audio
-        audio_resp = requests.get(audio_url, timeout=60, stream=True)
-        content = audio_resp.content
-
-        size_mb = len(content) / 1024 / 1024
-        log.info(f'Audio size: {size_mb:.1f}MB')
-
-        if len(content) > 45 * 1024 * 1024:
-            send(chat_id, f'❌ File too large ({size_mb:.1f}MB). Telegram limit is 50MB.')
-            return
-
-        fname = f"{safe_name(video['title'])}.mp3"
-
-        url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendAudio'
-        r = requests.post(url, data={
-            'chat_id': chat_id,
-            'title': video['title'],
-            'performer': video['channel'],
-            'duration': int(video.get('duration') or 0),
-        }, files={
-            'audio': (fname, content, 'audio/mpeg')
-        }, timeout=120)
-
-        result = r.json()
-        if not result.get('ok'):
-            log.error(f"Telegram sendAudio failed: {result}")
-            send(chat_id, f"❌ Failed to send audio: {result.get('description', 'Unknown error')}")
-
-    except Exception as e:
-        log.error(f'YT download error: {e}', exc_info=True)
-        send(chat_id, f'❌ Download failed. Please try a different video.')
+    if not r.json().get('ok'):
+        log.error(f"sendAudio failed: {r.json()}")
+        send(chat_id, '❌ Failed to send audio file.')
 
 
-# ─── Bot polling thread ──────────────────────────────────────────
+# ─── Bot polling ──────────────────────────────────────────────────
 def poll_bot():
     log.info('Bot polling started...')
     offset = None
@@ -470,16 +408,15 @@ def poll_bot():
                     log.error(f'Update error: {e}')
         except Exception as e:
             log.error(f'Polling error: {e}')
-            import time; time.sleep(5)
+            time.sleep(5)
 
-
-# ─── Flask routes ────────────────────────────────────────────────
+# ─── Flask routes ─────────────────────────────────────────────────
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')
 
 @app.route('/api/search')
-def yt_search():
+def yt_search_route():
     query = request.args.get('q', '').strip()
     if not query:
         return jsonify({'error': 'Missing ?q='}), 400
@@ -490,47 +427,28 @@ def yt_search():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/download')
-def yt_download():
+def yt_download_route():
     video_id = request.args.get('id', '').strip()
+    title = request.args.get('title', video_id)
     if not video_id:
         return jsonify({'error': 'Missing ?id='}), 400
-    try:
-        cobalt_resp = requests.post(
-            'https://api.cobalt.tools/',
-            json={
-                'url': f'https://www.youtube.com/watch?v={video_id}',
-                'downloadMode': 'audio',
-                'audioFormat': 'mp3',
-                'audioBitrate': '128',
-            },
-            headers={'Accept': 'application/json', 'Content-Type': 'application/json'},
-            timeout=30
-        )
-        cobalt_data = cobalt_resp.json()
-        audio_url = cobalt_data.get('url') or cobalt_data.get('tunnel')
-        if not audio_url:
-            return jsonify({'error': 'Could not get audio URL'}), 500
-
-        audio_resp = requests.get(audio_url, timeout=60)
-
-        return Response(audio_resp.content, mimetype='audio/mpeg', headers={
-            'Content-Disposition': f'attachment; filename="{video_id}.mp3"',
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    audio_bytes, fname = download_yt_audio(video_id, title)
+    if not audio_bytes:
+        return jsonify({'error': 'Download failed'}), 500
+    return Response(audio_bytes, mimetype='audio/mpeg',
+                    headers={'Content-Disposition': f'attachment; filename="{fname}"'})
 
 @app.route('/health')
 def health():
     return jsonify({'status': 'ok', 'service': 'QuantX All-in-One'})
 
-
-# ─── Start polling at module level (works with gunicorn) ─────────
+# ─── Start ────────────────────────────────────────────────────────
 if TELEGRAM_TOKEN:
     t = threading.Thread(target=poll_bot, daemon=True)
     t.start()
     log.info('Bot polling thread started')
 else:
-    log.warning('TELEGRAM_BOT_TOKEN not set — bot polling disabled')
+    log.warning('TELEGRAM_BOT_TOKEN not set')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
