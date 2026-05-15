@@ -30,6 +30,7 @@ def get_ydl_opts(extra=None):
         'quiet': False,
         'no_warnings': False,
         'nocheckcertificate': True,
+        'extractor_args': {'youtube': {'player_client': ['web']}},
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
