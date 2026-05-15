@@ -14,6 +14,31 @@ app = Flask(__name__, static_folder='static')
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 AIRSONGS_API = 'https://airsongsapi.vercel.app'
+YT_COOKIES = os.environ.get('YT_COOKIES', '')  # Netscape cookies.txt content
+
+# Write cookies to a temp file if provided
+COOKIES_FILE = None
+if YT_COOKIES:
+    _cf = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+    _cf.write(YT_COOKIES)
+    _cf.close()
+    COOKIES_FILE = _cf.name
+    log.info(f'YouTube cookies loaded from env → {COOKIES_FILE}')
+
+def get_ydl_opts(extra=None):
+    opts = {
+        'quiet': False,
+        'no_warnings': False,
+        'nocheckcertificate': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+    }
+    if COOKIES_FILE:
+        opts['cookiefile'] = COOKIES_FILE
+    if extra:
+        opts.update(extra)
+    return opts
 
 # ─── In-memory caches ────────────────────────────────────────────
 song_cache = {}
@@ -177,10 +202,7 @@ def handle_yt_search(chat_id, query):
         chat_action(chat_id, 'typing')
         send(chat_id, f'🎬 Searching YouTube for "{query}"...')
 
-        opts = {
-            'quiet': True, 'no_warnings': True,
-            'extract_flat': True, 'playlist_items': '1:5',
-        }
+        opts = get_ydl_opts({'extract_flat': True, 'playlist_items': '1:5'})
         with yt_dlp.YoutubeDL(opts) as ydl:
             result = ydl.extract_info(f'ytsearch5:{query}', download=False)
 
@@ -312,16 +334,10 @@ def handle_yt_download(chat_id, cb_id, key):
         vid_url = f"https://www.youtube.com/watch?v={video['id']}"
         tmp_dir = tempfile.mkdtemp()
 
-        opts = {
-            'quiet': False,
-            'no_warnings': False,
+        opts = get_ydl_opts({
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(tmp_dir, '%(id)s.%(ext)s'),
-            'nocheckcertificate': True,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            },
-        }
+        })
 
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(vid_url, download=True)
@@ -416,7 +432,7 @@ def yt_search():
     if not query:
         return jsonify({'error': 'Missing ?q='}), 400
     try:
-        opts = {'quiet': True, 'no_warnings': True, 'extract_flat': True, 'playlist_items': '1:5'}
+        opts = get_ydl_opts({'extract_flat': True, 'playlist_items': '1:5'})
         with yt_dlp.YoutubeDL(opts) as ydl:
             result = ydl.extract_info(f'ytsearch5:{query}', download=False)
         videos = []
@@ -442,11 +458,10 @@ def yt_download():
         return jsonify({'error': 'Missing ?id='}), 400
     try:
         tmp_dir = tempfile.mkdtemp()
-        opts = {
-            'quiet': True, 'no_warnings': True,
-            'format': 'bestaudio[filesize<45M]/bestaudio[ext=m4a]/bestaudio/best',
+        opts = get_ydl_opts({
+            'format': 'bestaudio/best',
             'outtmpl': os.path.join(tmp_dir, '%(id)s.%(ext)s'),
-        }
+        })
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=True)
 
