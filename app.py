@@ -313,48 +313,67 @@ def handle_yt_download(chat_id, cb_id, key):
         tmp_dir = tempfile.mkdtemp()
 
         opts = {
-            'quiet': True, 'no_warnings': True,
-            'format': 'bestaudio[filesize<45M]/bestaudio[ext=m4a]/bestaudio/best',
+            'quiet': False,
+            'no_warnings': False,
+            'format': 'bestaudio/best',
             'outtmpl': os.path.join(tmp_dir, '%(id)s.%(ext)s'),
+            'nocheckcertificate': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
         }
 
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(vid_url, download=True)
 
-        ext = info.get('ext', 'm4a')
-        fpath = os.path.join(tmp_dir, f"{info['id']}.{ext}")
+        ext = info.get('ext', 'webm')
 
-        if not os.path.exists(fpath):
-            send(chat_id, '❌ Download failed. Try a different video.')
+        # Find the downloaded file (extension may vary)
+        fpath = None
+        for f in os.listdir(tmp_dir):
+            if f.startswith(info['id']):
+                fpath = os.path.join(tmp_dir, f)
+                ext = f.rsplit('.', 1)[-1]
+                break
+
+        if not fpath or not os.path.exists(fpath):
+            send(chat_id, '❌ File not found after download. Try a different video.')
             return
 
         size_mb = os.path.getsize(fpath) / 1024 / 1024
+        log.info(f'Downloaded {fpath} — {size_mb:.1f}MB')
+
         if size_mb > 45:
             os.remove(fpath)
-            send(chat_id, f'❌ File too large ({size_mb:.1f}MB). Telegram limit is 50MB.')
+            send(chat_id, f'❌ File too large ({size_mb:.1f}MB). Telegram limit is 50MB.\n\nTry a shorter video.')
             return
 
         fname = f"{safe_name(video['title'])}.{ext}"
+        mime = 'audio/mp4' if ext in ('m4a', 'mp4') else 'audio/webm' if ext == 'webm' else 'audio/mpeg'
+
         with open(fpath, 'rb') as f:
             audio_bytes = f.read()
         os.remove(fpath)
 
-        result = send_audio(
-            chat_id, audio_bytes, fname,
-            video['title'], video['channel'],
-            int(video.get('duration') or 0)
-        )
+        url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendAudio'
+        r = requests.post(url, data={
+            'chat_id': chat_id,
+            'title': video['title'],
+            'performer': video['channel'],
+            'duration': int(video.get('duration') or 0),
+        }, files={
+            'audio': (fname, audio_bytes, mime)
+        }, timeout=120)
+
+        result = r.json()
         if not result.get('ok'):
-            send(chat_id, f"❌ Failed to send: {result.get('description', 'Unknown error')}")
+            log.error(f"Telegram sendAudio failed: {result}")
+            send(chat_id, f"❌ Failed to send audio: {result.get('description', 'Unknown error')}")
 
     except Exception as e:
-        log.error(f'YT download error: {e}')
+        log.error(f'YT download error: {e}', exc_info=True)
         send(chat_id,
-            '❌ Download failed. This can happen with:\n'
-            '• Age-restricted videos\n'
-            '• Very long videos (over 15 min)\n'
-            '• Region-blocked content\n\n'
-            'Try a different video.'
+            f'❌ Download failed: {str(e)[:200]}\n\nTry a different video.'
         )
 
 
