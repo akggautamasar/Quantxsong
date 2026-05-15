@@ -2,7 +2,7 @@ services:
   - type: web
     name: quantx-all-in-one
     runtime: python
-    buildCommand: pip install -r requirements.txt && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --timeout 120 --workers 1 --threads 4
     plan: free
     envVars:

@@ -30,9 +30,15 @@ def get_ydl_opts(extra=None):
         'quiet': False,
         'no_warnings': False,
         'nocheckcertificate': True,
-        'extractor_args': {'youtube': {'player_client': ['web']}},
+        # tv_embedded client bypasses signature solving — no JS runtime needed
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv_embedded'],
+                'player_skip': ['webpage', 'configs'],
+            }
+        },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 TV Safari/538.1',
         },
     }
     if COOKIES_FILE:
