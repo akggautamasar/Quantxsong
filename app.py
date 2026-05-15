@@ -30,15 +30,14 @@ def get_ydl_opts(extra=None):
         'quiet': False,
         'no_warnings': False,
         'nocheckcertificate': True,
-        # tv_embedded client bypasses signature solving — no JS runtime needed
+        # ios client provides pre-signed URLs — no signature solving needed
         'extractor_args': {
             'youtube': {
-                'player_client': ['tv_embedded'],
-                'player_skip': ['webpage', 'configs'],
+                'player_client': ['ios'],
             }
         },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 TV Safari/538.1',
+            'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
         },
     }
     if COOKIES_FILE:
